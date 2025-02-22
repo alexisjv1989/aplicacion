@@ -1,0 +1,102 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat App</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+    <div id="loginForm">
+        <h2>Login</h2>
+        <input type="text" id="nombre" placeholder="Usuario">
+        <input type="password" id="password" placeholder="Contraseña">
+        <button onclick="login()">Iniciar Sesión</button>
+    </div>
+
+    <div id="chatSection" style="display: none;">
+        <div id="status">Estado: Desconectado</div>
+        <div id="messages"></div>
+    </div>
+
+    <script>
+        let socket;
+
+        async function login() {
+            const nombre = document.getElementById('nombre').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ nombre, password })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Guardar el token
+                    localStorage.setItem('token', data.token);
+                    console.log('Login exitoso, token guardado');
+                    
+                    // Mostrar sección de chat
+                    document.getElementById('loginForm').style.display = 'none';
+                    document.getElementById('chatSection').style.display = 'block';
+                    
+                    // Iniciar conexión Socket.io
+                    initializeSocket(data.token);
+                } else {
+                    alert('Error de login: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error en el login');
+            }
+        }
+
+        function initializeSocket(token) {
+            // Inicializar Socket.io con el token
+            socket = io({
+                auth: {
+                    token: token
+                }
+            });
+
+            // Eventos de Socket.io
+            socket.on('connect', () => {
+                console.log('Conectado al servidor Socket.io');
+                document.getElementById('status').textContent = 'Estado: Conectado';
+            });
+
+            socket.on('connect_error', (error) => {
+                console.error('Error de conexión:', error);
+                document.getElementById('status').textContent = 'Estado: Error - ' + error.message;
+            });
+
+            socket.on('new_message', (data) => {
+                const messages = document.getElementById('messages');
+                messages.innerHTML += `<p>${data.from}: ${data.message}</p>`;
+            });
+
+            // Debug
+            socket.onAny((eventName, ...args) => {
+                console.log('Evento Socket.io:', eventName, args);
+            });
+        }
+
+        // Verificar si ya hay un token guardado al cargar la página
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('token');
+            if (token) {
+                document.getElementById('loginForm').style.display = 'none';
+                document.getElementById('chatSection').style.display = 'block';
+                initializeSocket(token);
+            }
+        });
+    </script>
+</body>
+</html>

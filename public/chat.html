@@ -1,0 +1,322 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat en Tiempo Real</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            height: 100vh;
+            background-color: #f0f2f5;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+            padding: 20px;
+        }
+
+        .users-panel {
+            width: 250px;
+            background: white;
+            border-radius: 10px;
+            margin-right: 20px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .users-list {
+            margin-top: 20px;
+        }
+
+        .user-item {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .user-item:hover {
+            background-color: #f0f2f5;
+        }
+
+        .user-item.online {
+            color: #4CAF50;
+        }
+
+        .chat-container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .chat-header {
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .messages-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .message {
+            margin: 5px 0;
+            padding: 10px 15px;
+            border-radius: 15px;
+            max-width: 70%;
+            word-wrap: break-word;
+        }
+
+        .message.sent {
+            background-color: #0084ff;
+            color: white;
+            align-self: flex-end;
+        }
+
+        .message.received {
+            background-color: #e4e6eb;
+            align-self: flex-start;
+        }
+
+        .message-info {
+            font-size: 0.8em;
+            margin-bottom: 5px;
+            color: #65676b;
+        }
+
+        .input-container {
+            padding: 20px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex-grow: 1;
+            padding: 10px 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 20px;
+            font-size: 15px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #0084ff;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 15px;
+        }
+
+        button:hover {
+            background-color: #0073e6;
+        }
+
+        .status-indicator {
+            padding: 10px;
+            text-align: center;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+
+        .system-message {
+            text-align: center;
+            color: #65676b;
+            margin: 10px 0;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="users-panel">
+            <h3>Usuarios en línea</h3>
+            <div class="status-indicator" id="connection-status">
+                Desconectado
+            </div>
+            <div id="users-list" class="users-list">
+                <!-- Los usuarios se añadirán aquí dinámicamente -->
+            </div>
+        </div>
+
+        <div class="chat-container">
+            <div class="chat-header">
+                <h2>Chat Global</h2>
+                <span id="typing-indicator"></span>
+            </div>
+
+            <div id="messages" class="messages-container">
+                <!-- Los mensajes se añadirán aquí dinámicamente -->
+            </div>
+
+            <div class="input-container">
+                <input 
+                    type="text" 
+                    id="message-input" 
+                    placeholder="Escribe un mensaje..." 
+                    autocomplete="off"
+                />
+                <button onclick="sendMessage()">Enviar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let socket;
+        let currentUser = null;
+        const connectedUsers = new Set();
+
+        function initializeSocket() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = '/login.html';
+                return;
+            }
+
+            socket = io({
+                auth: { token }
+            });
+
+            setupSocketListeners();
+        }
+
+        function setupSocketListeners() {
+            socket.on('connect', () => {
+                updateConnectionStatus('Conectado', true);
+            });
+
+            socket.on('connect_error', (error) => {
+                updateConnectionStatus(`Error: ${error.message}`, false);
+            });
+
+            socket.on('welcome', (data) => {
+                currentUser = data.user;
+                addSystemMessage(`Bienvenido al chat, ${currentUser.nombre}!`);
+            });
+
+            socket.on('new_message', (data) => {
+                // Solo mostrar el mensaje si no es del usuario actual
+                if (!data.fromSelf) {
+                    addMessage(data);
+                }
+            });
+
+            socket.on('user_connected', (data) => {
+                addSystemMessage(`${data.nombre} se ha unido al chat`);
+                addUserToList(data);
+            });
+
+            socket.on('user_disconnected', (data) => {
+                addSystemMessage(`${data.nombre} ha abandonado el chat`);
+                removeUserFromList(data.userId);
+            });
+        }
+
+        function sendMessage() {
+            const messageInput = document.getElementById('message-input');
+            const message = messageInput.value.trim();
+            
+            if (message && socket) {
+                socket.emit('send_message', { message });
+                
+                // Agregar el mensaje localmente
+                addMessage({
+                    fromSelf: true,
+                    message: message,
+                    from: 'Tú'
+                });
+                
+                messageInput.value = '';
+            }
+        }
+
+        function addMessage(data) {
+            const messagesContainer = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${data.fromSelf ? 'sent' : 'received'}`;
+            
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'message-info';
+            infoDiv.textContent = data.fromSelf ? 'Tú' : data.from;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.textContent = data.message;
+            
+            messageDiv.appendChild(infoDiv);
+            messageDiv.appendChild(contentDiv);
+            messagesContainer.appendChild(messageDiv);
+            
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function addSystemMessage(message) {
+            const messagesContainer = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'system-message';
+            messageDiv.textContent = message;
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function updateConnectionStatus(status, connected) {
+            const statusElement = document.getElementById('connection-status');
+            statusElement.textContent = status;
+            statusElement.style.color = connected ? '#4CAF50' : '#f44336';
+        }
+
+        function addUserToList(user) {
+            if (!connectedUsers.has(user.userId)) {
+                connectedUsers.add(user.userId);
+                
+                const usersList = document.getElementById('users-list');
+                const userItem = document.createElement('div');
+                userItem.className = 'user-item online';
+                userItem.textContent = user.nombre;
+                userItem.id = `user-${user.userId}`;
+                usersList.appendChild(userItem);
+            }
+        }
+
+        function removeUserFromList(userId) {
+            if (connectedUsers.has(userId)) {
+                connectedUsers.delete(userId);
+                const userElement = document.getElementById(`user-${userId}`);
+                if (userElement) {
+                    userElement.remove();
+                }
+            }
+        }
+
+        // Event listener para enviar mensaje con Enter
+        document.getElementById('message-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Inicializar al cargar la página
+        document.addEventListener('DOMContentLoaded', initializeSocket);
+    </script>
+</body>
+</html>
