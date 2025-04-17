@@ -29,7 +29,7 @@ const main = async () => {
         
         // 4. Iniciar el servidor HTTP (que incluye Socket.io)
         server.listen(3000, () => {
-            console.log('Servidor HTTP y Socket.io corriendo en puerto 3000');
+            console.log('Servidor HTTP y Socket.io corriendo en puerto 3000 jenkins');
         });
     } catch (error) {
         console.error('Error de conexión:', error);
